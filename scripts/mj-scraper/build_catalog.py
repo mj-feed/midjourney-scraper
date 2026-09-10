@@ -1,14 +1,14 @@
 """
 Build catalog files for the frontend browser from the scraped JSONL data.
 
-Outputs (to /home/z/my-project/download/catalog/):
+Outputs (to <repo_root>/download/catalog/):
   - catalog.json     — lightweight item list (id, type, feed, prompt_text, user, dims, urls, tags, sref)
   - catalog_full.json — full items including raw API response (lazy-loaded by frontend)
   - facets.json      — precomputed facet counts for sidebar filters
   - stats.json       — aggregate statistics for the header
 
 Usage:
-    python3 build_catalog.py [--input /home/z/my-project/download/midjourney_feed.jsonl]
+    python3 build_catalog.py [--input ../../download/midjourney_feed.jsonl]
 """
 import argparse
 import json
@@ -16,6 +16,7 @@ from pathlib import Path
 from collections import Counter, defaultdict
 
 # Use paths relative to the script location (works in any environment)
+SCRIPT_DIR = Path(__file__).parent
 _PROJECT_ROOT = SCRIPT_DIR.parent.parent
 DOWNLOAD_DIR = _PROJECT_ROOT / "download"
 CATALOG_DIR = DOWNLOAD_DIR / "catalog"
