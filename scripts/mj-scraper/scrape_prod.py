@@ -57,8 +57,11 @@ CF_COOKIES_FILE = SCRIPT_DIR / "cf_cookies.json"
 FIREBASE_API_KEY_FILE = SCRIPT_DIR / "firebase_api_key.txt"
 FIREBASE_TOKENS_FILE = SCRIPT_DIR / "firebase_tokens.json"
 
-DOWNLOAD_DIR = Path("/home/z/my-project/download")
-UPLOAD_DIR = Path("/home/z/my-project/upload")
+# Use paths relative to the script location (works in any environment: local, GHA, etc.)
+# Walk up from scripts/mj-scraper/scrape_prod.py -> repo root -> download/
+_PROJECT_ROOT = SCRIPT_DIR.parent.parent
+DOWNLOAD_DIR = _PROJECT_ROOT / "download"
+UPLOAD_DIR   = _PROJECT_ROOT / "upload"
 DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 

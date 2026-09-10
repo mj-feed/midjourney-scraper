@@ -13,7 +13,8 @@ Usage:
 import json
 from pathlib import Path
 
-DOWNLOAD_DIR = Path("/home/z/my-project/download")
+SCRIPT_DIR = Path(__file__).parent
+DOWNLOAD_DIR = SCRIPT_DIR.parent.parent / "download"
 TEMPLATE = DOWNLOAD_DIR / "index.html"
 STANDALONE = DOWNLOAD_DIR / "browser_standalone.html"
 CATALOG = DOWNLOAD_DIR / "catalog" / "catalog.json"

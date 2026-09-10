@@ -15,7 +15,9 @@ import json
 from pathlib import Path
 from collections import Counter, defaultdict
 
-DOWNLOAD_DIR = Path("/home/z/my-project/download")
+# Use paths relative to the script location (works in any environment)
+_PROJECT_ROOT = SCRIPT_DIR.parent.parent
+DOWNLOAD_DIR = _PROJECT_ROOT / "download"
 CATALOG_DIR = DOWNLOAD_DIR / "catalog"
 CATALOG_DIR.mkdir(parents=True, exist_ok=True)
 
