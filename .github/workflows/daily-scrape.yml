@@ -1,0 +1,141 @@
+name: Daily Midjourney Scrape
+
+on:
+  schedule:
+    - cron: '0 9 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  DISPLAY: :99
+  MJ_FIREBASE_REFRESH_TOKEN: ${{ secrets.MJ_FIREBASE_REFRESH_TOKEN }}
+  MJ_FIREBASE_API_KEY: ${{ secrets.MJ_FIREBASE_API_KEY }}
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout scraper repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install system dependencies (Xvfb + browser deps)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb libnss3 libatk1.0-0 libatk-bridge2.0-0 \
+            libcups2 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 \
+            libxfixes3 libxrandr2 libgbm1 libpango-1.0-0 libcairo2 libasound2t64 \
+            libgtk-3-0
+
+      - name: Install Playwright + Python deps
+        run: |
+          pip install playwright
+          python -m playwright install chromium
+          python -m playwright install-deps chromium
+
+      - name: Start Xvfb
+        run: |
+          Xvfb :99 -screen 0 1920x1080x24 -ac -nolisten tcp -nolisten inet6 &
+          echo $! > /tmp/xvfb.pid
+          sleep 2
+          if kill -0 $(cat /tmp/xvfb.pid) 2>/dev/null; then
+            echo "Xvfb started successfully"
+          else
+            echo "Xvfb failed to start"
+            exit 1
+          fi
+
+      - name: Write credentials from secrets
+        run: |
+          mkdir -p scripts/mj-scraper
+          printf '__Host-Midjourney.AuthUserTokenV3_r=%s\n__Host-Midjourney.AuthUserTokenV3_i=placeholder\n' \
+            "${MJ_FIREBASE_REFRESH_TOKEN}" > scripts/mj-scraper/cookies.txt
+          printf '%s' "${MJ_FIREBASE_API_KEY}" > scripts/mj-scraper/firebase_api_key.txt
+          echo "Credentials written:"
+          echo "  refresh token length: $(awk -F= '/^__Host-Midjourney.AuthUserTokenV3_r=/{print length($2)}' scripts/mj-scraper/cookies.txt) chars"
+          echo "  api key: $(cat scripts/mj-scraper/firebase_api_key.txt)"
+
+      - name: Run scraper
+        run: |
+          cd scripts/mj-scraper
+          python3 scrape_prod.py \
+            --max-pages 30 \
+            --page-delay 1.5 \
+            --timeout 1200 \
+            --out ../../download/midjourney_feed.jsonl \
+            2>&1 | tee /tmp/scrape.log
+          echo "Scrape exit code: ${PIPESTATUS[0]}"
+          echo "=== SCRAPE SUMMARY ==="
+          tail -20 /tmp/scrape.log
+          if [ -f ../../download/midjourney_feed.jsonl ]; then
+            ITEM_COUNT=$(wc -l < ../../download/midjourney_feed.jsonl)
+            echo "Total items in output: $ITEM_COUNT"
+          fi
+
+      - name: Build catalog + standalone browser
+        run: |
+          cd scripts/mj-scraper
+          python3 build_catalog.py --input ../../download/midjourney_feed.jsonl
+          python3 build_standalone.py
+
+      - name: Mirror to upload/
+        run: |
+          mkdir -p upload
+          cp -f download/midjourney_feed.jsonl upload/ 2>/dev/null || true
+          echo "Files in download/:"
+          ls -la download/
+          echo "Files in download/catalog/:"
+          ls -la download/catalog/ 2>/dev/null || echo "No catalog dir"
+
+      - name: Push to midjourney-data repo
+        env:
+          GH_TOKEN: ${{ secrets.DATA_REPO_PAT }}
+        run: |
+          set -e
+          cd /tmp
+          git clone "https://x-access-token:${GH_TOKEN}@github.com/mj-feed/midjourney-data.git" data-repo
+          cd data-repo
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          SCRAPER_WORKSPACE="${{ github.workspace }}"
+          mkdir -p download/catalog upload
+          cp -f "$SCRAPER_WORKSPACE/download/midjourney_feed.jsonl" download/
+          cp -f "$SCRAPER_WORKSPACE/download/catalog/"* download/catalog/
+          cp -f "$SCRAPER_WORKSPACE/download/browser_standalone.html" download/
+          cp -f "$SCRAPER_WORKSPACE/download/index.html" download/
+          cp -f download/midjourney_feed.jsonl upload/
+          git add -A
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            COMMIT_MSG="Daily scrape: $(date -u '+%Y-%m-%d %H:%M UTC')
+
+            Scraped by GHA workflow.
+            Source: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            git commit -m "$COMMIT_MSG"
+            git push
+            echo "Pushed to midjourney-data: $(git rev-parse HEAD)"
+          fi
+
+      - name: Upload scrape log as artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scrape-log-${{ github.run_id }}
+          path: /tmp/scrape.log
+          retention-days: 7
+
+      - name: Cleanup Xvfb
+        if: always()
+        run: |
+          if [ -f /tmp/xvfb.pid ]; then
+            kill $(cat /tmp/xvfb.pid) 2>/dev/null || true
+          fi

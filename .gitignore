@@ -1,0 +1,14 @@
+node_modules/
+# Never commit credentials
+scripts/mj-scraper/cookies.txt
+scripts/mj-scraper/firebase_tokens.json
+scripts/mj-scraper/firebase_api_key.txt
+scripts/mj-scraper/cf_cookies.json
+# Generated output (goes to midjourney-data repo, not here)
+download/midjourney_feed.jsonl
+download/catalog/
+download/browser_standalone.html
+upload/
+# Test artifacts
+*.png
+tool-results/
