@@ -177,9 +177,8 @@ def get_feed_endpoint(feed):
     return FEED_ENDPOINTS.get(feed, ("/api/explore", "image"))
 
 
-# ---- Normalize items (imported from scrape_prod for consistency) ----
-sys.path.insert(0, str(SCRIPT_DIR))
-from scrape_prod import normalize_item, normalize_style_item
+# ---- Normalize items (from playwright-free normalize module) ----
+from normalize import normalize_item, normalize_style_item
 
 
 # ---- Main scrape ----
