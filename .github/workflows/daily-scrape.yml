@@ -9,14 +9,13 @@ permissions:
   contents: read
 
 env:
-  DISPLAY: :99
   MJ_FIREBASE_REFRESH_TOKEN: ${{ secrets.MJ_FIREBASE_REFRESH_TOKEN }}
   MJ_FIREBASE_API_KEY: ${{ secrets.MJ_FIREBASE_API_KEY }}
 
 jobs:
   scrape:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 15
 
     steps:
       - name: Checkout scraper repo
@@ -26,32 +25,6 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-
-      - name: Install system dependencies (Xvfb + browser deps)
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y xvfb libnss3 libatk1.0-0 libatk-bridge2.0-0 \
-            libcups2 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 \
-            libxfixes3 libxrandr2 libgbm1 libpango-1.0-0 libcairo2 libasound2t64 \
-            libgtk-3-0
-
-      - name: Install Playwright + Python deps
-        run: |
-          pip install playwright
-          python -m playwright install chromium
-          python -m playwright install-deps chromium
-
-      - name: Start Xvfb
-        run: |
-          Xvfb :99 -screen 0 1920x1080x24 -ac -nolisten tcp -nolisten inet6 &
-          echo $! > /tmp/xvfb.pid
-          sleep 2
-          if kill -0 $(cat /tmp/xvfb.pid) 2>/dev/null; then
-            echo "Xvfb started successfully"
-          else
-            echo "Xvfb failed to start"
-            exit 1
-          fi
 
       - name: Write credentials from secrets
         run: |
@@ -63,13 +36,13 @@ jobs:
           echo "  refresh token length: $(awk -F= '/^__Host-Midjourney.AuthUserTokenV3_r=/{print length($2)}' scripts/mj-scraper/cookies.txt) chars"
           echo "  api key: $(cat scripts/mj-scraper/firebase_api_key.txt)"
 
-      - name: Run scraper
+      - name: Run scraper (via Supabase proxy — no browser needed)
         run: |
           cd scripts/mj-scraper
-          python3 scrape_prod.py \
+          python3 scrape_via_proxy.py \
             --max-pages 30 \
-            --page-delay 1.5 \
-            --timeout 1200 \
+            --page-delay 1.0 \
+            --timeout 300 \
             --out ../../download/midjourney_feed.jsonl \
             2>&1 | tee /tmp/scrape.log
           echo "Scrape exit code: ${PIPESTATUS[0]}"
@@ -118,7 +91,7 @@ jobs:
           else
             COMMIT_MSG="Daily scrape: $(date -u '+%Y-%m-%d %H:%M UTC')
 
-            Scraped by GHA workflow.
+            Scraped by GHA workflow (proxy mode — no browser needed).
             Source: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
             git commit -m "$COMMIT_MSG"
             git push
@@ -132,10 +105,3 @@ jobs:
           name: scrape-log-${{ github.run_id }}
           path: /tmp/scrape.log
           retention-days: 7
-
-      - name: Cleanup Xvfb
-        if: always()
-        run: |
-          if [ -f /tmp/xvfb.pid ]; then
-            kill $(cat /tmp/xvfb.pid) 2>/dev/null || true
-          fi
