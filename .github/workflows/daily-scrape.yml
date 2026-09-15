@@ -34,7 +34,23 @@ jobs:
           printf '%s' "${MJ_FIREBASE_API_KEY}" > scripts/mj-scraper/firebase_api_key.txt
           echo "Credentials written:"
           echo "  refresh token length: $(awk -F= '/^__Host-Midjourney.AuthUserTokenV3_r=/{print length($2)}' scripts/mj-scraper/cookies.txt) chars"
-          echo "  api key: $(cat scripts/mj-scraper/firebase_api_key.txt)"
+
+      - name: Clone data repo (to accumulate across days)
+        env:
+          GH_TOKEN: ${{ secrets.DATA_REPO_PAT }}
+        run: |
+          cd /tmp
+          git clone "https://x-access-token:${GH_TOKEN}@github.com/mj-feed/midjourney-data.git" data-repo
+          # Copy existing JSONL into the scraper workspace so the scraper can
+          # load existing IDs and skip duplicates (accumulate, don't overwrite)
+          mkdir -p ${{ github.workspace }}/download
+          if [ -f /tmp/data-repo/download/midjourney_feed.jsonl ]; then
+            cp /tmp/data-repo/download/midjourney_feed.jsonl ${{ github.workspace }}/download/midjourney_feed.jsonl
+            EXISTING_COUNT=$(wc -l < ${{ github.workspace }}/download/midjourney_feed.jsonl)
+            echo "Loaded $EXISTING_COUNT existing items from data repo (will accumulate)"
+          else
+            echo "No existing JSONL in data repo — first run"
+          fi
 
       - name: Run scraper (via Supabase proxy — no browser needed)
         run: |
@@ -50,10 +66,10 @@ jobs:
           tail -20 /tmp/scrape.log
           if [ -f ../../download/midjourney_feed.jsonl ]; then
             ITEM_COUNT=$(wc -l < ../../download/midjourney_feed.jsonl)
-            echo "Total items in output: $ITEM_COUNT"
+            echo "Total items in output (cumulative): $ITEM_COUNT"
           fi
 
-      - name: Build catalog + standalone browser
+      - name: Build catalog + standalone browser (from CUMULATIVE data)
         run: |
           cd scripts/mj-scraper
           python3 build_catalog.py --input ../../download/midjourney_feed.jsonl
@@ -65,32 +81,34 @@ jobs:
           cp -f download/midjourney_feed.jsonl upload/ 2>/dev/null || true
           echo "Files in download/:"
           ls -la download/
-          echo "Files in download/catalog/:"
-          ls -la download/catalog/ 2>/dev/null || echo "No catalog dir"
 
-      - name: Push to midjourney-data repo
+      - name: Push to midjourney-data repo (accumulate)
         env:
           GH_TOKEN: ${{ secrets.DATA_REPO_PAT }}
         run: |
           set -e
-          cd /tmp
-          git clone "https://x-access-token:${GH_TOKEN}@github.com/mj-feed/midjourney-data.git" data-repo
-          cd data-repo
+          cd /tmp/data-repo
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           SCRAPER_WORKSPACE="${{ github.workspace }}"
           mkdir -p download/catalog upload
+          # Copy the CUMULATIVE JSONL (scraper already merged new items with existing)
           cp -f "$SCRAPER_WORKSPACE/download/midjourney_feed.jsonl" download/
           cp -f "$SCRAPER_WORKSPACE/download/catalog/"* download/catalog/
           cp -f "$SCRAPER_WORKSPACE/download/browser_standalone.html" download/
           cp -f "$SCRAPER_WORKSPACE/download/index.html" download/
           cp -f download/midjourney_feed.jsonl upload/
+          # Report what changed
+          OLD_COUNT=$(git show HEAD:download/midjourney_feed.jsonl 2>/dev/null | wc -l || echo 0)
+          NEW_COUNT=$(wc -l < download/midjourney_feed.jsonl)
+          echo "Items: $OLD_COUNT → $NEW_COUNT (delta: +$((NEW_COUNT - OLD_COUNT)))"
           git add -A
           if git diff --staged --quiet; then
             echo "No changes to commit"
           else
             COMMIT_MSG="Daily scrape: $(date -u '+%Y-%m-%d %H:%M UTC')
 
+            Items: $OLD_COUNT → $NEW_COUNT (+$((NEW_COUNT - OLD_COUNT)) new)
             Scraped by GHA workflow (proxy mode — no browser needed).
             Source: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
             git commit -m "$COMMIT_MSG"
