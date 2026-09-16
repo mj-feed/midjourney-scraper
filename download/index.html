@@ -448,13 +448,17 @@ function renderCard(it, idx) {
   const selected = idx === STATE.selectedIdx ? 'selected' : '';
   const type = it.type || 'image';
   const typeLabel = type.toUpperCase();
-  const imgUrl = (it.image_urls && it.image_urls[0]) || it.video_thumbnail_url || '';
+  const imgUrl = it.thumbnail_data_uri || (it.image_urls && it.image_urls[0]) || it.video_thumbnail_url || '';
   const prompt = it.prompt_text || '';
   const user = (it.user || {}).display_name || 'unknown';
   const feedLabel = FEED_LABELS[it.feed] || it.feed;
   let mediaHtml;
   if (imgUrl) {
-    mediaHtml = `<img loading="lazy" src="${imgUrl}" alt="" onerror="this.parentElement.innerHTML='<div class=&quot;placeholder&quot;'>Image not available</div>'" />`;
+    // If thumbnail_data_uri is present (base64), it's already cached — no onerror needed.
+    // If it's a CDN URL, add retry logic with exponential backoff.
+    const isDataUri = imgUrl.startsWith('data:');
+    const onerror = isDataUri ? '' : ' onerror="this.dataset.tries=(this.dataset.tries||0)+1; if(this.dataset.tries<3){setTimeout(()=>{this.src=this.src.split(\'?\')[0]+\'?retry=\'+Date.now();},1000*this.dataset.tries);}else{this.parentElement.innerHTML=\'<div class=placeholder>Image not available</div>\';}"';
+    mediaHtml = `<img loading="lazy" src="${imgUrl}" alt=""${onerror} />`;
   } else if (type === 'style') {
     mediaHtml = `<div class="placeholder">Style<br/><span class="card-style-code">--sref ${it.sref || '?'}</span></div>`;
   } else {

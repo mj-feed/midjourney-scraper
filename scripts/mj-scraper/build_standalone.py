@@ -13,8 +13,7 @@ Usage:
 import json
 from pathlib import Path
 
-SCRIPT_DIR = Path(__file__).parent
-DOWNLOAD_DIR = SCRIPT_DIR.parent.parent / "download"
+DOWNLOAD_DIR = Path("/home/z/my-project/download")
 TEMPLATE = DOWNLOAD_DIR / "index.html"
 STANDALONE = DOWNLOAD_DIR / "browser_standalone.html"
 CATALOG = DOWNLOAD_DIR / "catalog" / "catalog.json"
@@ -23,9 +22,13 @@ STATS = DOWNLOAD_DIR / "catalog" / "stats.json"
 
 def main():
     html = TEMPLATE.read_text()
-    catalog = CATALOG.read_text()
+    # Prefer catalog_with_thumbs.json (has inline base64 thumbnails) if it exists
+    catalog_with_thumbs = DOWNLOAD_DIR / "catalog" / "catalog_with_thumbs.json"
+    catalog_path = catalog_with_thumbs if catalog_with_thumbs.exists() else CATALOG
+    catalog = catalog_path.read_text()
     facets = FACETS.read_text()
     stats = STATS.read_text()
+    print(f"Using catalog: {catalog_path.name} ({catalog_path.stat().st_size:,} bytes)")
 
     # Replace the loadData() function to use inlined data instead of fetch
     old_load = """async function loadData() {
