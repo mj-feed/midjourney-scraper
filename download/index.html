@@ -101,6 +101,9 @@ input { font-family: inherit; }
 .card-user { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 60%; }
 .card-feed { text-transform: uppercase; font-size: 10px; letter-spacing: 0.5px; }
 .card-style-code { font-family: 'SF Mono', Consolas, monospace; font-size: 11px; color: var(--type-style); font-weight: 600; }
+.card-derived { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.card-params { font-family: 'SF Mono', Consolas, monospace; font-size: 10px; color: var(--accent); background: var(--accent-glow); padding: 1px 5px; border-radius: 3px; }
+.card-refs { font-size: 10px; color: var(--text-faint); background: var(--bg-elev2); padding: 1px 5px; border-radius: 3px; }
 
 /* ===== Empty / Loading ===== */
 .empty-state { grid-column: 1 / -1; text-align: center; padding: 60px 20px; color: var(--text-dim); }
@@ -480,6 +483,7 @@ function renderCard(it, idx) {
         <span class="card-user">@${escapeHtml(user)}</span>
         <span class="card-feed">${feedLabel}</span>
       </div>
+      ${(it.derived_params || it.derived_ref_summary) ? `<div class="card-derived">${it.derived_params ? `<span class="card-params">${escapeHtml(it.derived_params)}</span>` : ''}${it.derived_ref_summary ? `<span class="card-refs">${escapeHtml(it.derived_ref_summary)}</span>` : ''}</div>` : ''}
     </div>
   </div>`;
 }
@@ -549,6 +553,9 @@ function renderDrawer() {
   if ((it.dimensions||{}).width) fields.push(field('Dimensions', `${it.dimensions.width} × ${it.dimensions.height}`));
   if ((it.user||{}).display_name) fields.push(field('User', `@${it.user.display_name}`));
   if (it.sref) fields.push(field('SREF Code', `<code>--sref ${it.sref}</code>`));
+  if (it.derived_params) fields.push(field('Parameters', `<code>${escapeHtml(it.derived_params)}</code>`));
+  if (it.derived_ref_summary) fields.push(field('References', it.derived_ref_summary));
+  if (it.derived_complexity !== undefined) fields.push(field('Complexity', `${it.derived_complexity}/10`));
   if ((it.job_metadata||{}).job_type) fields.push(field('Job Type', it.job_metadata.job_type));
   if ((it.job_metadata||{}).event_type) fields.push(field('Event Type', it.job_metadata.event_type));
   if ((it.job_metadata||{}).enqueue_time_iso) fields.push(field('Created', it.job_metadata.enqueue_time_iso));

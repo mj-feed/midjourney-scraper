@@ -108,9 +108,11 @@ def main():
     ap.add_argument("--concurrency", type=int, default=4, help="Parallel fetches")
     args = ap.parse_args()
 
-    # Load catalog
-    catalog_path = CATALOG_DIR / "catalog.json"
-    print(f"Loading catalog from {catalog_path}...")
+    # Load catalog — prefer enriched (has derived fields), fall back to plain
+    catalog_path = CATALOG_DIR / "catalog_enriched.json"
+    if not catalog_path.exists():
+        catalog_path = CATALOG_DIR / "catalog.json"
+    print(f"Loading catalog from {catalog_path.name}...")
     items = json.loads(catalog_path.read_text())
     print(f"  {len(items)} items loaded")
 

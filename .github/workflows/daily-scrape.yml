@@ -69,12 +69,13 @@ jobs:
             echo "Total items in output (cumulative): $ITEM_COUNT"
           fi
 
-      - name: Build catalog + cache thumbnails + standalone browser
+      - name: Build catalog + enrich + cache thumbnails + standalone browser
         run: |
           cd scripts/mj-scraper
           python3 build_catalog.py --input ../../download/midjourney_feed.jsonl
+          # Enrich catalog with derived metadata (params string, ref summary, complexity score)
+          python3 enrich_catalog.py
           # Cache thumbnails via Supabase proxy (avoids CF rate-limiting in the browser)
-          # Downloads each thumbnail via rotating proxy IPs, embeds as base64 data URIs
           python3 cache_thumbnails.py --concurrency 6
           python3 build_standalone.py
 

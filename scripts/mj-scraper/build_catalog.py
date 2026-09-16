@@ -1,21 +1,20 @@
 """
 Build catalog files for the frontend browser from the scraped JSONL data.
 
-Outputs (to <repo_root>/download/catalog/):
+Outputs (to /home/z/my-project/download/catalog/):
   - catalog.json     — lightweight item list (id, type, feed, prompt_text, user, dims, urls, tags, sref)
   - catalog_full.json — full items including raw API response (lazy-loaded by frontend)
   - facets.json      — precomputed facet counts for sidebar filters
   - stats.json       — aggregate statistics for the header
 
 Usage:
-    python3 build_catalog.py [--input ../../download/midjourney_feed.jsonl]
+    python3 build_catalog.py [--input /home/z/my-project/download/midjourney_feed.jsonl]
 """
 import argparse
 import json
 from pathlib import Path
 from collections import Counter, defaultdict
 
-# Use paths relative to the script location (works in any environment)
 SCRIPT_DIR = Path(__file__).parent
 _PROJECT_ROOT = SCRIPT_DIR.parent.parent
 DOWNLOAD_DIR = _PROJECT_ROOT / "download"
@@ -30,6 +29,10 @@ LIGHT_FIELDS = {
     "image_urls", "image_urls_all_sizes", "image_urls_original",
     "video_urls", "video_thumbnail_url", "video_metadata",
     "sref", "formatted_sref",
+    # Derived/enriched fields (added by enrich_catalog.py)
+    "derived_params", "derived_ref_summary", "derived_complexity", "derived_prompt_summary",
+    "has_personalize", "has_sref_seed", "has_sref_url", "has_depth_ref",
+    "thumbnail_data_uri",  # base64 cached thumbnail (added by cache_thumbnails.py)
 }
 
 
