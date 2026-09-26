@@ -69,7 +69,7 @@ jobs:
             echo "Total items in output (cumulative): $ITEM_COUNT"
           fi
 
-      - name: Build catalog + enrich + cache thumbnails + standalone browser
+      - name: Build catalog + enrich + cache + shard + standalone browser
         run: |
           cd scripts/mj-scraper
           python3 build_catalog.py --input ../../download/midjourney_feed.jsonl
@@ -77,6 +77,11 @@ jobs:
           python3 enrich_catalog.py
           # Cache thumbnails via Supabase proxy (avoids CF rate-limiting in the browser)
           python3 cache_thumbnails.py --concurrency 6
+          # Shard the catalog into multiple files (each <50MB) to avoid GitHub's 100MB file limit
+          # Scales indefinitely: 10,000 items = 50 shards × ~12MB each
+          python3 shard_catalog.py --shard-size 200
+          # Build standalone browser (no inline thumbnails — uses CDN URLs with retry)
+          # Keeps the HTML small (~6MB for 1500+ items)
           python3 build_standalone.py
 
       - name: Mirror to upload/

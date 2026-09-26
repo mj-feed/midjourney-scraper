@@ -1,11 +1,12 @@
 """
 Build a self-contained frontend HTML file with catalog data inlined.
-This allows the browser to be opened directly as a file (file://) without
-a web server, OR served via any static host.
+NO thumbnails are inlined — the browser loads them from CDN URLs with retry logic.
+
+This keeps the standalone HTML small (~5MB for 3000+ items) and scales indefinitely.
+Thumbnails load on-demand from cdn.midjourney.com with 3-retry exponential backoff.
 
 Outputs:
-  - download/index.html (standalone — fetches catalog/ files, for served use)
-  - download/browser_standalone.html (catalog data inlined, for file:// use)
+  - download/browser_standalone.html (catalog data inlined, thumbnails from CDN)
 
 Usage:
     python3 build_standalone.py
@@ -17,19 +18,27 @@ SCRIPT_DIR = Path(__file__).parent
 DOWNLOAD_DIR = SCRIPT_DIR.parent.parent / "download"
 TEMPLATE = DOWNLOAD_DIR / "index.html"
 STANDALONE = DOWNLOAD_DIR / "browser_standalone.html"
-CATALOG = DOWNLOAD_DIR / "catalog" / "catalog.json"
-FACETS = DOWNLOAD_DIR / "catalog" / "facets.json"
-STATS = DOWNLOAD_DIR / "catalog" / "stats.json"
+CATALOG_DIR = DOWNLOAD_DIR / "catalog"
 
 def main():
     html = TEMPLATE.read_text()
-    # Prefer catalog_with_thumbs.json (has inline base64 thumbnails) if it exists
-    catalog_with_thumbs = DOWNLOAD_DIR / "catalog" / "catalog_with_thumbs.json"
-    catalog_path = catalog_with_thumbs if catalog_with_thumbs.exists() else CATALOG
-    catalog = catalog_path.read_text()
-    facets = FACETS.read_text()
-    stats = STATS.read_text()
-    print(f"Using catalog: {catalog_path.name} ({catalog_path.stat().st_size:,} bytes)")
+
+    # Use the enriched catalog (has derived params, ref summary, etc.)
+    # Do NOT use catalog_with_thumbs.json — it's too large and gets sharded separately
+    catalog_path = CATALOG_DIR / "catalog_enriched.json"
+    if not catalog_path.exists():
+        catalog_path = CATALOG_DIR / "catalog.json"
+
+    # Strip thumbnail_data_uri fields from the catalog to keep it small
+    # (the browser will use CDN URLs with retry instead)
+    catalog_raw = json.loads(catalog_path.read_text())
+    for item in catalog_raw:
+        item.pop("thumbnail_data_uri", None)
+    catalog = json.dumps(catalog_raw, ensure_ascii=False)
+
+    facets = (CATALOG_DIR / "facets.json").read_text()
+    stats = (CATALOG_DIR / "stats.json").read_text()
+    print(f"Using catalog: {catalog_path.name} (stripped thumbnails, {len(catalog):,} bytes)")
 
     # Replace the loadData() function to use inlined data instead of fetch
     old_load = """async function loadData() {
@@ -51,36 +60,28 @@ def main():
   }
 }"""
 
-    new_load = """// Data inlined by build_standalone.py
-const INLINE_CATALOG = __CATALOG__;
-const INLINE_FACETS = __FACETS__;
-const INLINE_STATS = __STATS__;
+    new_load = f"""// Data inlined by build_standalone.py (no thumbnails — loaded from CDN with retry)
+const INLINE_CATALOG = {catalog};
+const INLINE_FACETS = {facets};
+const INLINE_STATS = {stats};
 
-async function loadData() {
-  try {
+async function loadData() {{
+  try {{
     STATE.items = INLINE_CATALOG;
     STATE.facets = INLINE_FACETS;
     STATE.stats = INLINE_STATS;
-    document.getElementById('stats').textContent = `${STATE.items.length} items · ${STATE.stats.unique_users || 0} users`;
+    document.getElementById('stats').textContent = `${{STATE.items.length}} items · ${{STATE.stats.unique_users || 0}} users`;
     renderFacets();
     applyFilters();
-  } catch (e) {
+  }} catch (e) {{
     console.error('Failed to load data', e);
-    document.getElementById('grid').innerHTML = `<div class="empty-state"><div class="icon">⚠</div><div>Failed to load data</div><div style="margin-top:8px;font-size:12px">${e.message}</div></div>`;
-  }
-}"""
-
-    # Escape backticks and ${ in JSON for safe embedding in JS template literals
-    # Actually we're not using template literals — we just assign the JSON directly
-    # JSON is safe to embed as a JS expression (it's a subset of JS object literal syntax
-    # except for a few unicode line separators — but our data doesn't have those)
-    new_load = new_load.replace("__CATALOG__", catalog)
-    new_load = new_load.replace("__FACETS__", facets)
-    new_load = new_load.replace("__STATS__", stats)
+    document.getElementById('grid').innerHTML = `<div class="empty-state"><div class="icon">⚠</div><div>Failed to load data</div><div style="margin-top:8px;font-size:12px">${{e.message}}</div></div>`;
+  }}
+}}"""
 
     standalone_html = html.replace(old_load, new_load)
 
-    # Update the title to indicate standalone
+    # Update the title
     standalone_html = standalone_html.replace(
         "<title>Midjourney Explore Browser</title>",
         "<title>Midjourney Explore Browser (Standalone)</title>"
@@ -89,7 +90,7 @@ async function loadData() {
     STANDALONE.write_text(standalone_html)
     print(f"Built {STANDALONE}")
     print(f"  Size: {STANDALONE.stat().st_size:,} bytes ({STANDALONE.stat().st_size/1024/1024:.1f} MB)")
-    print(f"  Catalog items inlined: {len(json.loads(catalog))}")
+    print(f"  Catalog items inlined: {len(catalog_raw)} (thumbnails load from CDN)")
 
 if __name__ == "__main__":
     main()
