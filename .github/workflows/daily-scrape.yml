@@ -101,12 +101,27 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           SCRAPER_WORKSPACE="${{ github.workspace }}"
           mkdir -p download/catalog upload
+          # Remove old monolithic files (replaced by shards — avoids GitHub 100MB limit)
+          rm -f download/catalog/catalog_with_thumbs.json
+          rm -f download/browser_standalone_old.html
           # Copy the CUMULATIVE JSONL (scraper already merged new items with existing)
           cp -f "$SCRAPER_WORKSPACE/download/midjourney_feed.jsonl" download/
+          # Clean catalog dir and copy fresh sharded files
+          rm -f download/catalog/thumbs_*.json download/catalog/catalog_with_thumbs.json
           cp -f "$SCRAPER_WORKSPACE/download/catalog/"* download/catalog/
           cp -f "$SCRAPER_WORKSPACE/download/browser_standalone.html" download/
           cp -f "$SCRAPER_WORKSPACE/download/index.html" download/
           cp -f download/midjourney_feed.jsonl upload/
+          # Report file sizes (verify nothing exceeds 100MB)
+          echo "=== File sizes ==="
+          find download/ -type f -exec ls -la {} \; | awk '{printf "%s  %.1f MB\n", \$NF, \$5/1024/1024}' | sort -k2 -rn | head -20
+          # Check for files > 95MB (warning threshold)
+          LARGE=$(find download/ -type f -size +95M 2>/dev/null)
+          if [ -n "$LARGE" ]; then
+            echo "WARNING: Files approaching 100MB limit: $LARGE"
+          else
+            echo "✓ All files under 95MB"
+          fi
           # Report what changed
           OLD_COUNT=$(git show HEAD:download/midjourney_feed.jsonl 2>/dev/null | wc -l || echo 0)
           NEW_COUNT=$(wc -l < download/midjourney_feed.jsonl)
