@@ -129,36 +129,54 @@ def ensure_fresh_id_token():
     return tokens
 
 
-# ---- Proxy fetch ----
+# ---- Fetch (proxy with direct fallback) ----
+_PROXY_AVAILABLE = None  # cached check
+
 def proxy_fetch(url, region="us-east-1", extra_headers=None, timeout=30):
-    """Fetch a URL via the Supabase edge proxy with custom headers forwarded."""
-    body = json.dumps({
-        "url": url,
-        "mode": "raw",
-        "headers": {
-            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36",
-            "accept": "application/json",
-            "accept-encoding": "identity",  # prevent compression
-            **(extra_headers or {}),
-        }
-    }).encode()
-    req = urllib.request.Request(PROXY_URL, data=body, method="POST", headers={
-        "Authorization": f"Bearer {PROXY_TOKEN}",
-        "Content-Type": "application/json",
-        "x-region": region,
-    })
+    """Fetch a URL via the Supabase edge proxy.
+    Falls back to direct MJ API call if proxy is unavailable (DNS failure, etc.)."""
+    global _PROXY_AVAILABLE
+
+    headers = {
+        "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36",
+        "accept": "application/json",
+        "accept-encoding": "identity",
+        **(extra_headers or {}),
+    }
+
+    # Try proxy first (if we haven't determined it's down)
+    if _PROXY_AVAILABLE is not False:
+        try:
+            body = json.dumps({"url": url, "mode": "raw", "headers": headers}).encode()
+            req = urllib.request.Request(PROXY_URL, data=body, method="POST", headers={
+                "Authorization": f"Bearer {PROXY_TOKEN}",
+                "Content-Type": "application/json",
+                "x-region": region,
+            })
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                resp = r.read()
+                text = resp.decode("utf-8", "ignore")
+                _PROXY_AVAILABLE = True
+                return {"status": r.status, "body": text, "edge": r.headers.get("x-sb-edge-region", "?"), "ok": r.status == 200}
+        except urllib.error.HTTPError as e:
+            _PROXY_AVAILABLE = True  # proxy is alive, just HTTP error
+            return {"status": e.code, "body": e.read().decode("utf-8", "ignore"), "edge": "?", "ok": False}
+        except Exception as e:
+            if _PROXY_AVAILABLE is None:
+                print(f"  [proxy] Supabase proxy unavailable ({e}), falling back to direct calls", flush=True)
+                _PROXY_AVAILABLE = False
+
+    # Direct call (no proxy) — works on GHA runners with normal US IPs
+    req = urllib.request.Request(url, headers=headers)
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
             resp = r.read()
             text = resp.decode("utf-8", "ignore")
-            status = r.status
-            edge = r.headers.get("x-sb-edge-region", "?")
-            return {"status": status, "body": text, "edge": edge, "ok": status == 200}
+            return {"status": r.status, "body": text, "edge": "direct", "ok": r.status == 200}
     except urllib.error.HTTPError as e:
-        body = e.read().decode("utf-8", "ignore")
-        return {"status": e.code, "body": body, "edge": "?", "ok": False}
+        return {"status": e.code, "body": e.read().decode("utf-8", "ignore"), "edge": "direct", "ok": False}
     except Exception as e:
-        return {"status": 0, "body": str(e), "edge": "?", "ok": False}
+        return {"status": 0, "body": str(e), "edge": "direct", "ok": False}
 
 
 # ---- Feed endpoint mapping (same as scrape_prod.py) ----
