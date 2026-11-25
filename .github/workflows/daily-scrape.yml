@@ -69,7 +69,7 @@ jobs:
             echo "Total items in output (cumulative): $ITEM_COUNT"
           fi
 
-      - name: Build catalog + enrich + shard + standalone browser
+      - name: Build catalog + enrich + shard
         run: |
           cd scripts/mj-scraper
           python3 build_catalog.py --input ../../download/midjourney_feed.jsonl
@@ -77,8 +77,10 @@ jobs:
           python3 enrich_catalog.py
           # Shard the catalog (each shard <50MB, scales indefinitely)
           python3 shard_catalog.py --shard-size 200
-          # Build standalone browser (no inline thumbnails — uses CDN URLs with retry)
-          python3 build_standalone.py
+          # NOTE: browser_standalone.html is retired — the standalone HTML
+          # approach was replaced by the Next.js browser app (mj-browser)
+          # which proxies CDN images server-side with the required browser
+          # headers. No standalone HTML is built or pushed anymore.
 
       - name: Cache thumbnails (incremental, with time limit)
         timeout-minutes: 10
@@ -86,13 +88,11 @@ jobs:
         run: |
           cd scripts/mj-scraper
           # Incremental: only fetches thumbnails for NEW items (skips already-cached)
-          # If this step times out or fails, the workflow still succeeds —
-          # the browser uses CDN URLs with retry as fallback
+          # Cached thumbnails are still useful for offline analysis / future tooling,
+          # even though the Next.js browser proxies images on-demand.
           python3 cache_thumbnails.py --concurrency 10 || true
           # Re-shard if new thumbnails were added
           python3 shard_catalog.py --shard-size 200 || true
-          # Rebuild standalone with any newly cached thumbnails
-          python3 build_standalone.py || true
 
       - name: Mirror to upload/
         run: |
@@ -113,14 +113,13 @@ jobs:
           mkdir -p download/catalog upload
           # Remove old monolithic files (replaced by shards — avoids GitHub 100MB limit)
           rm -f download/catalog/catalog_with_thumbs.json
-          rm -f download/browser_standalone_old.html
+          # Remove the retired standalone HTML files if they still exist from older runs
+          rm -f download/browser_standalone.html download/browser_standalone_old.html download/index.html
           # Copy the CUMULATIVE JSONL (scraper already merged new items with existing)
           cp -f "$SCRAPER_WORKSPACE/download/midjourney_feed.jsonl" download/
           # Clean catalog dir and copy fresh sharded files
           rm -f download/catalog/thumbs_*.json download/catalog/catalog_with_thumbs.json
           cp -f "$SCRAPER_WORKSPACE/download/catalog/"* download/catalog/
-          cp -f "$SCRAPER_WORKSPACE/download/browser_standalone.html" download/
-          cp -f "$SCRAPER_WORKSPACE/download/index.html" download/
           cp -f download/midjourney_feed.jsonl upload/
           # Report file sizes (verify nothing exceeds 100MB)
           echo "=== File sizes ==="
